@@ -67,7 +67,7 @@ public:
         }
         IteratorState(const IteratorState&);
         void clear();
-        void init(const Obj&);
+        void init(State&, ObjKey);
 
         Cluster& m_current_leaf;
         int64_t m_key_offset = 0;
@@ -165,6 +165,14 @@ public:
     }
 
 protected:
+#if REALM_MAX_BPNODE_SIZE > 256
+    static constexpr int node_shift_factor = 8;
+#else
+    static constexpr int node_shift_factor = 2;
+#endif
+
+    static constexpr size_t cluster_node_size = 1 << node_shift_factor;
+
     const ClusterTree& m_tree_top;
     ClusterKeyArray m_keys;
     uint64_t m_offset;
@@ -178,7 +186,7 @@ public:
     }
     ~Cluster() override;
 
-    void create(size_t nb_leaf_columns); // Note: leaf columns - may include holes
+    void create(); // Note: leaf columns - may include holes
     void init(MemRef mem) override;
     bool update_from_parent(size_t old_baseline) noexcept override;
     bool is_writeable() const

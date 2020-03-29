@@ -279,13 +279,10 @@ public:
     }
 
     void clear();
-    using Iterator = ClusterTree::Iterator;
-    using ConstIterator = ClusterTree::ConstIterator;
-    ConstIterator begin() const;
-    ConstIterator end() const;
-    Iterator begin();
-    Iterator end();
-    void remove_object(const ConstIterator& it)
+    using Iterator = TableClusterTree::Iterator;
+    Iterator begin() const;
+    Iterator end() const;
+    void remove_object(const Iterator& it)
     {
         remove_object(it->get_key());
     }
@@ -484,7 +481,6 @@ public:
     ColKey leaf_ndx2colkey(ColKey::Idx idx) const;
     ColKey spec_ndx2colkey(size_t ndx) const;
     void report_invalid_key(ColKey col_key) const;
-    size_t num_leaf_cols() const;
 
     // Queries
     // Using where(tv) is the new method to perform queries on TableView. The 'tv' can have any order; it does not
@@ -595,8 +591,8 @@ private:
         m_alloc.update_from_underlying_allocator(writable);
     }
     Spec m_spec;            // 1st slot in m_top
-    ClusterTree m_clusters; // 3rd slot in m_top
-    std::unique_ptr<ClusterTree> m_tombstones; // 13th slot in m_top
+    TableClusterTree m_clusters;                    // 3rd slot in m_top
+    std::unique_ptr<TableClusterTree> m_tombstones; // 13th slot in m_top
     TableKey m_key;     // 4th slot in m_top
     Array m_index_refs; // 5th slot in m_top
     Array m_opposite_table;  // 7th slot in m_top
@@ -787,6 +783,7 @@ private:
     friend class Transaction;
     friend class Cluster;
     friend class ClusterTree;
+    friend class TableClusterTree;
     friend class ColKeyIterator;
     friend class Obj;
     friend class LnkLst;
@@ -1225,11 +1222,6 @@ inline size_t Table::colkey2spec_ndx(ColKey key) const
     auto leaf_idx = key.get_index();
     REALM_ASSERT(leaf_idx.val < m_leaf_ndx2spec_ndx.size());
     return m_leaf_ndx2spec_ndx[leaf_idx.val];
-}
-
-inline size_t Table::num_leaf_cols() const
-{
-    return m_leaf_ndx2spec_ndx.size();
 }
 
 inline ColKey Table::spec_ndx2colkey(size_t spec_ndx) const
