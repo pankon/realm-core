@@ -34,6 +34,7 @@
 #include "realm/index_string.hpp"
 #include "realm/cluster_tree.hpp"
 #include "realm/spec.hpp"
+#include "realm/dictionary.hpp"
 #include "realm/table_view.hpp"
 #include "realm/replication.hpp"
 #include "realm/util/base64.hpp"
@@ -789,14 +790,14 @@ void Obj::to_json(std::ostream& out, size_t link_depth, std::map<std::string, st
     auto col_keys = m_table->get_column_keys();
     for (auto ck : col_keys) {
         name = m_table->get_column_name(ck);
-        DataType type = DataType(ck.get_type());
+        auto type = ck.get_type();
         if (renames[name] != "")
             name = renames[name];
 
         out << ",\"" << name << "\":";
 
         if (ck.get_attrs().test(col_attr_List)) {
-            if (type == type_LinkList) {
+            if (type == col_type_LinkList) {
                 TableRef target_table = get_target_table(ck);
                 auto ll = get_linklist(ck);
                 auto sz = ll.size();
@@ -838,8 +839,22 @@ void Obj::to_json(std::ostream& out, size_t link_depth, std::map<std::string, st
                 out << "]";
             }
         }
+        else if (ck.get_attrs().test(col_attr_Dictionary)) {
+            auto dict = get_dictionary(ck);
+            out << "{";
+            bool first = true;
+            for (auto it : dict) {
+                if (!first)
+                    out << ",";
+                first = false;
+                out_mixed(out, it.first);
+                out << ":";
+                out_mixed(out, it.second);
+            }
+            out << "}";
+        }
         else {
-            if (type == type_Link) {
+            if (type == col_type_Link) {
                 TableRef target_table = get_target_table(ck);
                 auto k = get<ObjKey>(ck);
                 if (k) {
@@ -1583,6 +1598,12 @@ void Obj::assign(const Obj& other)
     m_table->for_each_backlink_column(copy_links);
 }
 
+Dictionary Obj::get_dictionary(ColKey col_key) const
+{
+    REALM_ASSERT(col_key.is_dictionary());
+    update_if_needed();
+    return Dictionary(Obj(*this), col_key);
+}
 
 void Obj::assign_pk_and_backlinks(const Obj& other)
 {
