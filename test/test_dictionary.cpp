@@ -107,11 +107,54 @@ TEST(Dictionary_Basics)
         cmp((*it).second, "cruel world");
         dict.erase(it);
         CHECK_EQUAL(dict.size(), 1);
+        cmp(dict["Goodbye"], Mixed());
+        CHECK_EQUAL(dict.size(), 2);
     }
     {
         Dictionary dict = obj2.get_dictionary(col_dict);
         CHECK_EQUAL(dict.size(), 0);
         CHECK_THROW_ANY(dict.get("Baa").get_string());
+    }
+}
+
+TEST(Dictionary_Links)
+{
+    Group g;
+    auto cmp = [this](Mixed x, Mixed y) {
+        CHECK_EQUAL(x, y);
+    };
+
+    auto dogs = g.add_table_with_primary_key("dog", type_String, "name");
+    auto persons = g.add_table_with_primary_key("person", type_String, "name");
+    auto col_dict = persons->add_column_dictionary(type_String, "dictionaries");
+
+    Obj adam = persons->create_object_with_primary_key("adam");
+    Obj pluto = dogs->create_object_with_primary_key("pluto");
+    Obj lady = dogs->create_object_with_primary_key("lady");
+
+    {
+        Dictionary dict = adam.get_dictionary(col_dict);
+        CHECK(dict.insert("Pet", pluto).second);
+        CHECK_EQUAL(pluto.get_backlink_count(), 1);
+        CHECK_NOT(dict.insert("Pet", lady).second);
+        CHECK_EQUAL(pluto.get_backlink_count(), 0);
+        CHECK_EQUAL(lady.get_backlink_count(*persons, col_dict), 1);
+        CHECK_EQUAL(lady.get_backlink(*persons, col_dict, 0), adam.get_key());
+        CHECK_EQUAL(lady.get_backlink_count(), 1);
+        lady.remove();
+        cmp(dict["Pet"], Mixed());
+
+        // Reinsert lady
+        lady = dogs->create_object_with_primary_key("lady");
+        dict.insert("Pet", lady);
+        lady.invalidate(); // Make lady a tombstone :-(
+        cmp(dict["Pet"], Mixed());
+        lady = dogs->create_object_with_primary_key("lady");
+        cmp(dict["Pet"], Mixed(lady.get_link()));
+
+        auto invalid_link = pluto.get_link();
+        pluto.remove();
+        CHECK_THROW(dict.insert("Pet", invalid_link), LogicError);
     }
 }
 

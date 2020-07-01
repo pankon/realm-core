@@ -51,11 +51,13 @@ public:
 
     void create();
 
-    // throws std::out_of_range if key is not found
-    Mixed get(Mixed key) const;
     // first points to inserted/updated element.
     // second is true if the element was inserted
     std::pair<Iterator, bool> insert(Mixed key, Mixed value);
+    std::pair<Iterator, bool> insert(Mixed key, const Obj& obj);
+
+    // throws std::out_of_range if key is not found
+    Mixed get(Mixed key) const;
     // adds entry if key is not found
     const Mixed operator[](Mixed key);
 
@@ -64,6 +66,8 @@ public:
     void erase(Mixed key);
     void erase(Iterator it);
 
+    void nullify(Mixed);
+
     void clear();
 
     Iterator begin() const;
@@ -71,6 +75,7 @@ public:
 
 private:
     friend class MixedRef;
+
     mutable DictionaryClusterTree* m_clusters = nullptr;
     Obj m_obj;
     ColKey m_col_key;
@@ -112,6 +117,11 @@ private:
 
     Iterator(const Dictionary* dict, size_t pos);
 };
+
+inline std::pair<Dictionary::Iterator, bool> Dictionary::insert(Mixed key, const Obj& obj)
+{
+    return insert(key, Mixed(obj.get_link()));
+}
 
 } // namespace realm
 

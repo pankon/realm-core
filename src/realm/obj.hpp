@@ -82,6 +82,7 @@ public:
     }
 
     GlobalKey get_object_id() const;
+    ObjLink get_link() const;
 
     Replication* get_replication() const;
 

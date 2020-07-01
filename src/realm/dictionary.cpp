@@ -134,8 +134,16 @@ Mixed Dictionary::get(Mixed key) const
         ArrayMixed values(m_obj.get_alloc());
         ref_type ref = to_ref(Array::get(s.mem.get_addr(), 2));
         values.init_from_ref(ref);
+        Mixed val = values.get(s.index);
 
-        return values.get(s.index);
+        // Filter out potential unresolved links
+        if (!val.is_null() && val.get_type() == type_TypedLink) {
+            auto link = val.get<ObjLink>();
+            if (link.get_obj_key().is_unresolved()) {
+                return {};
+            }
+        }
+        return val;
     }
     throw std::out_of_range("Key not found");
     return {};
@@ -163,19 +171,47 @@ void Dictionary::create()
 std::pair<Dictionary::Iterator, bool> Dictionary::insert(Mixed key, Mixed value)
 {
     REALM_ASSERT(key.get_type() == DataType(m_col_key.get_type()));
+    REALM_ASSERT(value.get_type() != type_Link);
+
+    ObjLink new_link;
+    if (value.get_type() == type_TypedLink) {
+        new_link = value.template get<ObjLink>();
+        m_obj.get_table()->get_parent_group()->validate(new_link);
+    }
+
     create();
     auto hash = key.hash();
     ObjKey k(int64_t(hash & 0x7FFFFFFFFFFFFFFF));
+
     m_obj.bump_content_version();
     try {
         auto state = m_clusters->insert(k, key, value);
+
+        if (value.get_type() == type_TypedLink) {
+            CascadeState cascade_state;
+            m_obj.replace_backlink(m_col_key, ObjLink(), new_link, cascade_state);
+        }
+
         return {Iterator(this, state.index), true};
     }
-    catch (...) {
+    catch (const KeyAlreadyUsed&) {
         auto state = m_clusters->get(k);
         ArrayMixed values(m_obj.get_alloc());
         ref_type ref = to_ref(Array::get(state.mem.get_addr(), 2));
         values.init_from_ref(ref);
+
+        if (value.get_type() == type_TypedLink) {
+            Mixed old_value = values.get(state.index);
+            ObjLink old_link;
+            if (!old_value.is_null() && old_value.get_type() == type_TypedLink) {
+                old_link = old_value.get<ObjLink>();
+            }
+            if (new_link != old_link) {
+                CascadeState cascade_state;
+                m_obj.replace_backlink(m_col_key, old_link, new_link, cascade_state);
+            }
+        }
+
         values.set(state.index, value);
         return {Iterator(this, state.index), false};
     }
@@ -226,6 +262,20 @@ void Dictionary::erase(Mixed key)
 void Dictionary::erase(Iterator it)
 {
     erase((*it).first);
+}
+
+void Dictionary::nullify(Mixed key)
+{
+    auto hash = key.hash();
+    ObjKey k(int64_t(hash & 0x7FFFFFFFFFFFFFFF));
+
+    m_obj.bump_content_version();
+
+    auto state = m_clusters->get(k);
+    ArrayMixed values(m_obj.get_alloc());
+    ref_type ref = to_ref(Array::get(state.mem.get_addr(), 2));
+    values.init_from_ref(ref);
+    values.set(state.index, Mixed());
 }
 
 void Dictionary::clear()
@@ -279,7 +329,6 @@ Dictionary::Iterator::Iterator(const Dictionary* dict, size_t pos)
 auto Dictionary::Iterator::operator*() -> value_type
 {
     update();
-
     Mixed key;
     switch (m_key_type) {
         case col_type_String: {

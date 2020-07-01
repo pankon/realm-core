@@ -58,6 +58,11 @@ GlobalKey Obj::get_object_id() const
     return m_table->get_object_id(m_key);
 }
 
+ObjLink Obj::get_link() const
+{
+    return ObjLink(m_table->get_key(), m_key);
+}
+
 const TableClusterTree* Obj::get_tree_top() const
 {
     if (m_key.is_unresolved()) {
@@ -559,7 +564,15 @@ size_t Obj::get_backlink_count(const Table& origin, ColKey origin_col_key) const
 
     size_t cnt = 0;
     if (TableKey origin_table_key = origin.get_key()) {
-        ColKey backlink_col_key = origin.get_opposite_column(origin_col_key);
+        ColKey backlink_col_key;
+        auto type = origin_col_key.get_type();
+        if (type == col_type_TypedLink || type == col_type_Mixed || origin_col_key.is_dictionary()) {
+            backlink_col_key = get_table()->find_backlink_column(origin_col_key, origin_table_key);
+        }
+        else {
+            backlink_col_key = origin.get_opposite_column(origin_col_key);
+        }
+
         cnt = get_backlink_cnt(backlink_col_key);
     }
     return cnt;
@@ -569,7 +582,7 @@ ObjKey Obj::get_backlink(const Table& origin, ColKey origin_col_key, size_t back
 {
     ColKey backlink_col_key;
     auto type = origin_col_key.get_type();
-    if (type == col_type_TypedLink || type == col_type_Mixed) {
+    if (type == col_type_TypedLink || type == col_type_Mixed || origin_col_key.is_dictionary()) {
         backlink_col_key = get_table()->find_backlink_column(origin_col_key, origin.get_key());
     }
     else {
@@ -1435,6 +1448,15 @@ void Obj::nullify_link(ColKey origin_col_key, ObjLink target_link)
             REALM_ASSERT(false);
         }
     }
+    else if (attr.test(col_attr_Dictionary)) {
+        auto dict = this->get_dictionary(origin_col_key);
+        Mixed val{target_link};
+        for (auto it : dict) {
+            if (it.second == val) {
+                dict.nullify(it.first);
+            }
+        }
+    }
     else {
         if (origin_col_key.get_type() == col_type_Link) {
             ArrayKey links(alloc);
@@ -1479,7 +1501,7 @@ void Obj::set_backlink(ColKey col_key, ObjLink new_link)
         auto target_obj = m_table->get_parent_group()->get_object(new_link);
         ColKey backlink_col_key;
         auto type = col_key.get_type();
-        if (type == col_type_TypedLink || type == col_type_Mixed) {
+        if (type == col_type_TypedLink || type == col_type_Mixed || col_key.is_dictionary()) {
             backlink_col_key = target_obj.get_table()->find_or_add_backlink_column(col_key, get_table_key());
         }
         else {
@@ -1506,7 +1528,7 @@ bool Obj::remove_backlink(ColKey col_key, ObjLink old_link, CascadeState& state)
         TableRef target_table = target_obj.get_table();
         ColKey backlink_col_key;
         auto type = col_key.get_type();
-        if (type == col_type_TypedLink || type == col_type_Mixed) {
+        if (type == col_type_TypedLink || type == col_type_Mixed || col_key.is_dictionary()) {
             backlink_col_key = target_table->find_or_add_backlink_column(col_key, get_table_key());
         }
         else {
@@ -1623,6 +1645,16 @@ void Obj::assign_pk_and_backlinks(const Obj& other)
                 // Single link
                 REALM_ASSERT(!linking_obj.get<ObjKey>(c) || linking_obj.get<ObjKey>(c) == other.get_key());
                 linking_obj.set(c, get_key());
+            }
+            else if (c.is_dictionary()) {
+                auto dict = linking_obj.get_dictionary(c);
+                Mixed val(other.get_link());
+                for (auto it : dict) {
+                    if (it.second == val) {
+                        auto link = get_link();
+                        dict.insert(it.first, link);
+                    }
+                }
             }
             else {
                 auto l = linking_obj.get_list<ObjKey>(c);
